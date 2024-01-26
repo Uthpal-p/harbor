@@ -17,8 +17,8 @@ package v2
 import (
 	"github.com/goharbor/harbor/src/common"
 
-	"github.com/docker/distribution/registry/auth/token"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/distribution/distribution/v3/registry/auth/token"
 )
 
 func init() {

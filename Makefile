@@ -104,15 +104,13 @@ PKGVERSIONTAG=dev
 PREPARE_VERSION_NAME=versions
 
 #versions
-REGISTRYVERSION=v2.8.3-patch-redis
+REGISTRYVERSION=v3.0.0-alpha.1+redis-sentinel
 TRIVYVERSION=v0.61.0
 TRIVYADAPTERVERSION=v0.33.0-rc.2
 NODEBUILDIMAGE=node:16.18.0
 
 # version of registry for pulling the source code
-REGISTRY_SRC_TAG=release/2.8
-# source of upstream distribution code
-DISTRIBUTION_SRC=https://github.com/goharbor/distribution.git
+REGISTRY_SRC_TAG=v3.0.0
 
 # dependency binaries
 REGISTRYURL=https://storage.googleapis.com/harbor-builds/bin/registry/release-${REGISTRYVERSION}/registry

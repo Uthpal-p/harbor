@@ -31,7 +31,6 @@ import (
 	"github.com/goharbor/harbor/src/common/utils"
 	"github.com/goharbor/harbor/src/controller/robot"
 	"github.com/goharbor/harbor/src/lib"
-	"github.com/goharbor/harbor/src/lib/config"
 	"github.com/goharbor/harbor/src/lib/errors"
 	"github.com/goharbor/harbor/src/lib/log"
 	"github.com/goharbor/harbor/src/lib/q"
@@ -436,7 +435,7 @@ func isValidLevel(l string) bool {
 }
 
 func isValidDuration(d int64) bool {
-	return d == -1 || (d > 0 && d < math.MaxInt32)
+	return d >= int64(-1) && d != 0 && d < math.MaxInt32
 }
 
 // validateName validates the robot name, especially '+' cannot be a valid character

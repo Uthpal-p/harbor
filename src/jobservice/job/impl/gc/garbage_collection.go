@@ -15,16 +15,24 @@
 package gc
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
+	"path/filepath"
 	"net/url"
 	"os"
 	"sync/atomic"
 	"time"
+	"strconv"
 
 	"github.com/google/uuid"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/aws/aws-sdk-go-v2/aws"                // AWS SDK core package
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager" // For S3 Uploader
+	"github.com/aws/aws-sdk-go-v2/service/s3"         // AWS S3 service client
+	"github.com/aws/aws-sdk-go-v2/config"			  // For loading AWS configuration
 	"github.com/goharbor/harbor/src/common/registryctl"
 	"github.com/goharbor/harbor/src/controller/artifact"
 	"github.com/goharbor/harbor/src/controller/project"
@@ -237,10 +245,15 @@ func (gc *GarbageCollector) mark(ctx job.Context) error {
 		return nil
 	}
 
-	// update delete status for the candidates.
+	// write SHAs of blobs to be deleted to a file and update delete status for the candidates.
 	blobCt := 0
 	mfCt := 0
 	makeSize := int64(0)
+	now := time.Now()
+	fileName := "/var/log/jobs/delete-manifest_" + strconv.FormatInt(now.Unix(), 10) +".csv"
+	file, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	defer file.Close()
+	writer := bufio.NewWriter(file)
 
 	for _, blob := range blobs {
 		if !gc.dryRun {
@@ -259,6 +272,11 @@ func (gc *GarbageCollector) mark(ctx job.Context) error {
 			}
 		}
 		gc.logger.Infof("blob eligible for deletion: %s", blob.Digest)
+
+		_, writeErr := writer.WriteString(generateS3ManifestEntry(blob.Digest))
+		if writeErr != nil {
+			gc.logger.Errorf("Failed to generate batch job manifest entry for: %v", blob.Digest)
+		}
 		gc.deleteSet = append(gc.deleteSet, blob)
 		if blob.IsManifest() {
 			mfCt++
@@ -272,7 +290,16 @@ func (gc *GarbageCollector) mark(ctx job.Context) error {
 	}
 	gc.logger.Infof("%d blobs and %d manifests eligible for deletion", blobCt, mfCt)
 	gc.logger.Infof("The GC could free up %d MB space, the size is a rough estimation.", makeSize/1024/1024)
-
+	err = writer.Flush()
+	if err != nil {
+		gc.logger.Errorf("Error flushing writer: %v", err)
+		return errGcStop
+	}
+	err = uploadToS3(fileName)
+	if err != nil {
+		gc.logger.Errorf("Error uploading file to s3: %v", err)
+		return errGcStop
+	}
 	if gc.dryRun {
 		if err := saveGCRes(ctx, makeSize, int64(blobCt), int64(mfCt)); err != nil {
 			gc.logger.Errorf("failed to save the garbage collection results, errMsg=%v", err)
@@ -741,5 +768,69 @@ func saveGCRes(ctx job.Context, sweepSize, blobs, manifests int64) error {
 		return err
 	}
 	_ = ctx.Checkin(string(c))
+	return nil
+}
+
+func generateS3ManifestEntry(blobSha string) string {
+	// remove 'sha256:' prefix from blob.Digest and generate s3 blob path
+	blob := blobSha[7:]
+	s3_bucket, ok := os.LookupEnv("S3_BUCKET")
+	if !ok || s3_bucket == "" {
+		fmt.Printf("S3_BUCKET environment variable not set")
+		return ""
+	}
+	rootDir, ok := os.LookupEnv("ROOT_DIRECTORY")
+	object_prefix := rootDir + "docker/registry/v2/blobs/sha256/"
+	manifestEntry := s3_bucket + "," + object_prefix + blob[0:2] + "/" + blob + "/data" +"\n"
+	return manifestEntry
+}
+
+// uploadToS3 uploads a local file to the S3 bucket
+func uploadToS3(filePath string) error {
+
+	bucketName, ok := os.LookupEnv("S3_BUCKET")
+	if !ok || bucketName == "" {
+		return fmt.Errorf("S3_BUCKET environment variable not set")
+	}
+	const awsRegion = "us-west-2"
+
+	// 1. Load AWS configuration.
+	// This will typically load credentials from environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+	// REGISTRY_STORAGE_S3_ACCESSKEY REGISTRY_STORAGE_S3_SECRETKEY harbor-gc-registry
+	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
+	if err != nil {
+		fmt.Printf("Error loading AWS config: %v\n", err)
+		return fmt.Errorf("Error loading AWS config: %v\n", err)
+	}
+
+	// 2. Create an S3 service client.
+	s3Client := s3.NewFromConfig(cfg)
+	objectKey := fmt.Sprintf("batch_job_manifests/%s",
+	filepath.Base(filePath))
+	// Open the local file for reading.
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open local file %q: %w", filePath, err)
+	}
+	// Ensure the file is closed after the function returns, regardless of success or failure.
+	defer file.Close()
+
+	// Create an S3 Uploader. The Uploader handles large files by splitting them
+	// into parts and uploading them concurrently, making the process more robust.
+	uploader := manager.NewUploader(s3Client)
+
+	// Perform the upload operation.
+	// Input takes the bucket name, the object key (destination path in S3),
+	// and the file's reader (file content).
+	_, err = uploader.Upload(context.TODO(), &s3.PutObjectInput{
+		Bucket: aws.String(bucketName), // S3 bucket name
+		Key:    aws.String(objectKey),  // This is where you specify the full S3 path/key
+		Body:   file,                   // Content of the file to upload
+	})
+	if err != nil {
+		return fmt.Errorf("failed to upload file %q to s3://%s/%s: %w", filePath, bucketName, objectKey, err)
+	}
+
+	fmt.Printf("Successfully uploaded %q to s3://%s/%s\n", filePath, bucketName, objectKey)
 	return nil
 }

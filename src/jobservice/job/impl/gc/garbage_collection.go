@@ -776,7 +776,7 @@ func generateS3ManifestEntry(blobSha string) string {
 	// remove 'sha256:' prefix from blob.Digest and generate s3 blob path
 	blob := blobSha[7:]
 	s3Bucket, ok := os.LookupEnv("S3_BUCKET")
-	s3_bucket = strings.TrimSpace(s3Bucket)
+	s3_bucket := strings.TrimSpace(s3Bucket)
 	if !ok || s3_bucket == "" {
 		fmt.Printf("S3_BUCKET environment variable not set")
 		return ""
@@ -791,7 +791,7 @@ func generateS3ManifestEntry(blobSha string) string {
 func uploadToS3(filePath string) error {
 
 	s3Bucket, ok := os.LookupEnv("S3_BUCKET")
-	bucketName = strings.TrimSpace(s3Bucket)
+	bucketName := strings.TrimSpace(s3Bucket)
 	if !ok || bucketName == "" {
 		return fmt.Errorf("S3_BUCKET environment variable not set")
 	}

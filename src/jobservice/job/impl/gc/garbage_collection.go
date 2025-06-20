@@ -296,11 +296,10 @@ func (gc *GarbageCollector) mark(ctx job.Context) error {
 		gc.logger.Errorf("Error flushing writer: %v", err)
 		return errGcStop
 	}
-	err = uploadToS3(fileName)
-	if err != nil {
-		gc.logger.Errorf("Error uploading file to s3: %v", err)
-		return errGcStop
+	if err := uploadToS3(fileName, gc.dryRun); err != nil {
+		gc.logger.Errorf("failed to upload deletion blobs' manifest, errMsg=%v", err)
 	}
+
 	if gc.dryRun {
 		if err := saveGCRes(ctx, makeSize, int64(blobCt), int64(mfCt)); err != nil {
 			gc.logger.Errorf("failed to save the garbage collection results, errMsg=%v", err)
@@ -788,7 +787,7 @@ func generateS3ManifestEntry(blobSha string) string {
 }
 
 // uploadToS3 uploads a local file to the S3 bucket
-func uploadToS3(filePath string) error {
+func uploadToS3(filePath string, dryRun bool) error {
 
 	s3Bucket, ok := os.LookupEnv("S3_BUCKET")
 	bucketName := strings.TrimSpace(s3Bucket)
@@ -797,9 +796,15 @@ func uploadToS3(filePath string) error {
 	}
 	const awsRegion = "us-west-2"
 
+	// if Dry-run, upload the file under dry_run_manifests, else upload under batch_job_manifests
+	// NOTE: uploading file to batch_job_manifests will automatically trigger deletion lambda function to start deleting blobs from s3
+	upload_folder_path := "batch_job_manifests"
+	if dryRun {
+		upload_folder_path = "dry_run_manifests"
+	}
+
 	// 1. Load AWS configuration.
 	// This will typically load credentials from environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
-	// REGISTRY_STORAGE_S3_ACCESSKEY REGISTRY_STORAGE_S3_SECRETKEY harbor-gc-registry
 	cfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(awsRegion))
 	if err != nil {
 		fmt.Printf("Error loading AWS config: %v\n", err)
@@ -808,8 +813,8 @@ func uploadToS3(filePath string) error {
 
 	// 2. Create an S3 service client.
 	s3Client := s3.NewFromConfig(cfg)
-	objectKey := fmt.Sprintf("batch_job_manifests/%s",
-	filepath.Base(filePath))
+	objectKey := fmt.Sprintf("%s/%s",
+	upload_folder_path, filepath.Base(filePath))
 	// Open the local file for reading.
 	file, err := os.Open(filePath)
 	if err != nil {

@@ -296,8 +296,16 @@ func (gc *GarbageCollector) mark(ctx job.Context) error {
 		gc.logger.Errorf("Error flushing writer: %v", err)
 		return errGcStop
 	}
-	if err := uploadToS3(fileName, gc.dryRun); err != nil {
+	err = uploadToS3(fileName, gc.dryRun);
+	if err != nil {
 		gc.logger.Errorf("failed to upload deletion blobs' manifest, errMsg=%v", err)
+	} else {
+		s3Bucket := os.Getenv("S3_BUCKET")
+		if gc.dryRun{
+			gc.logger.Infof("Uploaded deletion blobs' manifest to s3: %s/dry_run_manifests/%s", s3Bucket, fileName)
+		} else{
+			gc.logger.Infof("Uploaded deletion blobs' manifest to s3: %s/batch_job_manifests/%s", s3Bucket, fileName)
+		}
 	}
 
 	if gc.dryRun {

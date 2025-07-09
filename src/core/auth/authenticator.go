@@ -156,8 +156,8 @@ func Login(ctx context.Context, m models.AuthModel) (*models.User, error) {
 	if err != nil {
 		if _, ok = err.(ErrAuth); ok {
 			log.Warningf("Login failed, locking %s, and sleep for %v", m.Principal, frozenTime)
-			lock.Lock(m.Principal)
-			time.Sleep(frozenTime)
+			// lock.Lock(m.Principal)
+			// time.Sleep(frozenTime)
 		}
 		return nil, err
 	}

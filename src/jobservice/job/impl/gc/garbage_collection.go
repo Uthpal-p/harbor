@@ -302,9 +302,9 @@ func (gc *GarbageCollector) mark(ctx job.Context) error {
 	} else {
 		s3Bucket := os.Getenv("S3_BUCKET")
 		if gc.dryRun{
-			gc.logger.Infof("Uploaded deletion blobs' manifest to s3: %s/dry_run_manifests/%s", s3Bucket, fileName)
+			gc.logger.Infof("Uploaded deletion blobs' manifest to s3: %s/dry_run_manifests/%s", s3Bucket, filepath.Base(fileName))
 		} else{
-			gc.logger.Infof("Uploaded deletion blobs' manifest to s3: %s/batch_job_manifests/%s", s3Bucket, fileName)
+			gc.logger.Infof("Uploaded deletion blobs' manifest to s3: %s/batch_job_manifests/%s", s3Bucket, filepath.Base(fileName))
 		}
 	}
 
